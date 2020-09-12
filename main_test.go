@@ -90,6 +90,7 @@ func TestErrorCases(t *testing.T) {
 		{"ParseError", "-c=|", false},
 		{"ExecError", "-c=/nonexistent", false},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stdin := mustOpen(t, os.DevNull)

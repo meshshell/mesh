@@ -28,6 +28,12 @@ type Interpreter struct {
 }
 
 func (i *Interpreter) VisitCmd(c *ast.Cmd) (int, error) {
+	if b, ok := newBuiltin(c.Name, c.Args); ok {
+		if err := b.run(); err != nil {
+			return 1, err
+		}
+		return 0, nil
+	}
 	cmd := exec.Command(c.Name, c.Args...)
 	cmd.Stdin = i.Stdin
 	cmd.Stdout = i.Stdout
