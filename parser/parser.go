@@ -15,6 +15,7 @@
 package parser
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/meshshell/mesh/ast"
@@ -28,6 +29,9 @@ func NewParser(filename string) *Parser {
 }
 
 func (p *Parser) Parse(line string) (ast.Stmt, error) {
+	if strings.Contains(line, "|") {
+		return nil, errors.New("parser: pipes are not yet implemented")
+	}
 	argv := strings.Split(line, " ")
-	return &ast.Command{Name: argv[0], Args: argv[1:]}, nil
+	return &ast.Cmd{Name: argv[0], Args: argv[1:]}, nil
 }

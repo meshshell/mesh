@@ -15,39 +15,94 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
-	"github.com/chzyer/readline"
+	"golang.org/x/crypto/ssh/terminal"
 
+	"github.com/meshshell/mesh/interpreter"
 	"github.com/meshshell/mesh/parser"
 )
 
+type stdio struct {
+	in  *os.File
+	out io.Writer
+	err io.Writer
+}
+
 func main() {
-	rl, err := readline.New("] ")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	std := &stdio{os.Stdin, os.Stdout, os.Stderr}
+	os.Exit(mesh(os.Args[0], os.Args[1:], std))
+}
+
+func mesh(cmd string, args []string, std *stdio) int {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	fs.SetOutput(std.err)
+	snippet := fs.String("c", "", "run command from argument string")
+	if err := fs.Parse(args); err == flag.ErrHelp {
+		return 0
+	} else if err != nil {
+		fmt.Fprintln(std.err, err)
+		return 1
 	}
-	defer rl.Close()
-	rl.SetVimMode(true)
+
+	if *snippet != "" {
+		s := bufio.NewScanner(strings.NewReader(*snippet))
+		return repl("-c", s, std)
+	} else if script := fs.Arg(0); script != "" {
+		f, err := os.Open(script)
+		if err != nil {
+			fmt.Fprintln(std.err, err)
+			return 1
+		}
+		defer f.Close()
+		return repl(script, bufio.NewScanner(f), std)
+	} else if !terminal.IsTerminal(int(std.in.Fd())) {
+		return repl("(stdin)", bufio.NewScanner(std.in), std)
+	} else {
+		s, err := newRLScanner()
+		if err != nil {
+			fmt.Fprintln(std.err, err)
+			return 1
+		}
+		defer s.rl.Close()
+		return repl("(stdin)", s, std)
+	}
+}
+
+func repl(filename string, s scanner, std *stdio) int {
+	status := 0
+	parse := parser.NewParser(filename)
+	interp := &interpreter.Interpreter{
+		Stdin:  std.in,
+		Stdout: std.out,
+		Stderr: std.err,
+	}
 	for {
-		line, err := rl.Readline()
-		if err == io.EOF {
-			break
+		if ok := s.Scan(); !ok {
+			if err := s.Err(); err == errInterrupt {
+				status = 1
+				continue
+			} else {
+				break
+			}
 		}
+		stmt, err := parse.Parse(s.Text())
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			status = 1
+			fmt.Fprintln(std.err, err)
+			continue
 		}
-		p := parser.NewParser("(stdin)")
-		stmt, err := p.Parse(line)
+		status, err = stmt.Visit(interp)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-		if _, err = stmt.Exec(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			status = 1
+			fmt.Fprintln(std.err, err)
+			continue
 		}
 	}
+	return status
 }

@@ -12,21 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ast
+package interpreter
 
-type Stmt interface {
-	Visit(v StmtVisitor) (int, error)
+import (
+	"io"
+	"os/exec"
+
+	"github.com/meshshell/mesh/ast"
+)
+
+type Interpreter struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
-type StmtVisitor interface {
-	VisitCmd(c *Cmd) (int, error)
-}
-
-type Cmd struct {
-	Name string
-	Args []string
-}
-
-func (c *Cmd) Visit(v StmtVisitor) (int, error) {
-	return v.VisitCmd(c)
+func (i *Interpreter) VisitCmd(c *ast.Cmd) (int, error) {
+	cmd := exec.Command(c.Name, c.Args...)
+	cmd.Stdin = i.Stdin
+	cmd.Stdout = i.Stdout
+	cmd.Stderr = i.Stderr
+	err := cmd.Run()
+	status := cmd.ProcessState.ExitCode()
+	return status, err
 }
