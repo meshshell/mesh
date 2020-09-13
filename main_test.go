@@ -77,6 +77,40 @@ func TestScriptFromStdin(t *testing.T) {
 	assert.Empty(t, stderr.String())
 }
 
+func TestExit(t *testing.T) {
+	tests := []struct{
+		name string
+		script string
+		status int
+	}{
+		{"StatusIsZeroByDefault", "exit\necho didnt exit\n", 0},
+		{"WithStatusTwo", "exit 2\necho didnt exit\n", 2},
+		{"NonIntegerStatus", "exit 1.2\necho didnt exit\n", -1},
+		{"TooManyArgs", "exit too many\necho didnt exit\n", -1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdin := mustOpen(t, createFile(t, test.script))
+			var stdout, stderr strings.Builder
+			status := mesh(
+				"mesh",
+				[]string{},
+				&stdio{stdin, &stdout, &stderr},
+			)
+			if test.status == -1 {
+				assert.Equal(t, 0, status)
+				assert.Equal(t, "didnt exit\n", stdout.String())
+				assert.NotEmpty(t, stderr.String())
+			} else {
+				assert.Equal(t, test.status, status)
+				assert.Empty(t, stdout.String())
+				assert.Empty(t, stderr.String())
+			}
+		})
+	}
+}
+
 func TestErrorCases(t *testing.T) {
 	tests := []struct {
 		name          string

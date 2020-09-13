@@ -87,6 +87,12 @@ func repl(filename string, s scanner, std *stdio) int {
 			if err := s.Err(); err == errInterrupt {
 				status = 1
 				continue
+			} else if err == io.EOF {
+				// bufio.Scanner will never return io.EOF as an
+				// error, so only happens in interactive mode.
+				fmt.Fprintln(std.err,
+					"Use `exit` to leave the shell.")
+				continue
 			} else {
 				break
 			}
@@ -99,6 +105,10 @@ func repl(filename string, s scanner, std *stdio) int {
 		}
 		status, err = stmt.Visit(interp)
 		if err != nil {
+			if e, ok := err.(interpreter.ExitStatus); ok {
+				status = int(e)
+				break
+			}
 			status = 1
 			fmt.Fprintln(std.err, err)
 			continue

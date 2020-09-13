@@ -59,3 +59,7 @@ func TestBuiltinCD(t *testing.T) {
 		})
 	}
 }
+
+func TestExitStatusError(t *testing.T) {
+	assert.Equal(t, "exit 2", ExitStatus(2).Error())
+}

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"errors"
 	"os"
+	"strconv"
 )
 
 type builtin struct {
@@ -29,6 +30,8 @@ func newBuiltin(name string, args []string) (*builtin, bool) {
 	switch name {
 	case "cd":
 		return &builtin{fn: cd, args: args}, true
+	case "exit":
+		return &builtin{fn: exit, args: args}, true
 	default:
 		return nil, false
 	}
@@ -56,4 +59,25 @@ func cd(b *builtin) error {
 		return fmt.Errorf("cd: %w", err)
 	}
 	return nil
+}
+
+type ExitStatus int
+
+func (e ExitStatus) Error() string {
+	return fmt.Sprintf("exit %d", int(e))
+}
+
+func exit(b *builtin) error {
+	switch len(b.args) {
+	case 0:
+		return ExitStatus(0)
+	case 1:
+		i, err := strconv.Atoi(b.args[0])
+		if err != nil {
+			return errors.New("exit: integer argument required")
+		}
+		return ExitStatus(i)
+	default:
+		return errors.New("exit: too many arguments")
+	}
 }
