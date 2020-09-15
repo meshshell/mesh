@@ -15,7 +15,6 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -46,30 +45,30 @@ func mesh(cmd string, args []string, std *stdio) int {
 	if err := fs.Parse(args); err == flag.ErrHelp {
 		return 0
 	} else if err != nil {
-		fmt.Fprintln(std.err, err)
+		fmt.Fprintf(std.err, "mesh: %v\n", err)
 		return 1
 	}
 
 	if *snippet != "" {
-		s := bufio.NewScanner(strings.NewReader(*snippet))
+		s := newNonInteractive(strings.NewReader(*snippet))
 		return repl("-c", s, std)
 	} else if script := fs.Arg(0); script != "" {
 		f, err := os.Open(script)
 		if err != nil {
-			fmt.Fprintln(std.err, err)
+			fmt.Fprintf(std.err, "mesh: %v\n", err)
 			return 1
 		}
 		defer f.Close()
-		return repl(script, bufio.NewScanner(f), std)
+		return repl(script, newNonInteractive(f), std)
 	} else if !terminal.IsTerminal(int(std.in.Fd())) {
-		return repl("(stdin)", bufio.NewScanner(std.in), std)
+		return repl("(stdin)", newNonInteractive(std.in), std)
 	} else {
-		s, err := newRLScanner()
+		s, err := newInteractive()
 		if err != nil {
-			fmt.Fprintln(std.err, err)
+			fmt.Fprintf(std.err, "mesh: %v\n", err)
 			return 1
 		}
-		defer s.rl.Close()
+		defer s.close_()
 		return repl("(stdin)", s, std)
 	}
 }
@@ -82,25 +81,19 @@ func repl(filename string, s scanner, std *stdio) int {
 		Stdout: std.out,
 		Stderr: std.err,
 	}
+	s.setPrompt("] ")
 	for {
-		if ok := s.Scan(); !ok {
-			if err := s.Err(); err == errInterrupt {
-				status = 1
-				continue
-			} else if err == io.EOF {
-				// bufio.Scanner will never return io.EOF as an
-				// error, so only happens in interactive mode.
-				fmt.Fprintln(std.err,
-					"Use `exit` to leave the shell.")
-				continue
-			} else {
-				break
-			}
+		line, err := s.readLine()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			fmt.Fprintf(std.err, "mesh: %v\n", err)
+			continue
 		}
-		stmt, err := parse.Parse(s.Text())
+		stmt, err := parse.Parse(line)
 		if err != nil {
 			status = 1
-			fmt.Fprintln(std.err, err)
+			fmt.Fprintf(std.err, "mesh: %v\n", err)
 			continue
 		}
 		status, err = stmt.Visit(interp)
@@ -110,7 +103,7 @@ func repl(filename string, s scanner, std *stdio) int {
 				break
 			}
 			status = 1
-			fmt.Fprintln(std.err, err)
+			fmt.Fprintf(std.err, "mesh: %v\n", err)
 			continue
 		}
 	}

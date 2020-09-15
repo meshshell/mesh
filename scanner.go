@@ -15,46 +15,97 @@
 package main
 
 import (
+	"bufio"
 	"errors"
+	"io"
 
 	"github.com/chzyer/readline"
 )
 
-var errInterrupt = errors.New("scanner: interrupted")
+var errIgnoreEOF = errors.New("use `exit` to leave the shell")
 
 type scanner interface {
-	Err() error
-	Scan() bool
-	Text() string
+	readLine() (string, error)
+	setIgnoreEOF(ignore bool)
+	setPrompt(prompt string)
+	setViMode(vi bool)
 }
 
-type rlScanner struct {
-	rl   *readline.Instance
-	text string
-	err  error
+type interactive struct {
+	r   *readline.Instance
+	ignoreEOF bool
 }
 
-func newRLScanner() (*rlScanner, error) {
-	rl, err := readline.New("] ")
+func newInteractive() (*interactive, error) {
+	r, err := readline.New("")
 	if err != nil {
 		return nil, err
 	}
-	rl.SetVimMode(true)
-	return &rlScanner{rl, "", nil}, nil
+	r.SetVimMode(true)
+	return &interactive{r, true}, nil
 }
 
-func (s *rlScanner) Err() error {
-	return s.err
+func (i *interactive) close_() error {
+	return i.r.Close()
 }
 
-func (s *rlScanner) Scan() bool {
-	s.text, s.err = s.rl.Readline()
-	if s.err == readline.ErrInterrupt {
-		s.err = errInterrupt
+func (i *interactive) readLine() (string, error) {
+	line, err := i.r.Readline()
+	if i.ignoreEOF && err == io.EOF {
+		return line, errIgnoreEOF
 	}
-	return s.err == nil
+	return line, err
 }
 
-func (s *rlScanner) Text() string {
-	return s.text
+func (i *interactive) setIgnoreEOF(ignore bool) {
+	i.ignoreEOF = true
+}
+
+func (i *interactive) setPrompt(prompt string) {
+	i.r.SetPrompt(prompt)
+}
+
+func (i *interactive) setViMode(vi bool) {
+	i.r.SetVimMode(vi)
+}
+
+type noninteractive struct {
+	r io.Reader
+	s *bufio.Scanner
+}
+
+func newNonInteractive(r io.Reader) *noninteractive {
+	return &noninteractive{r, bufio.NewScanner(r)}
+}
+
+func (n *noninteractive) readLine() (string, error) {
+	if n.s == nil {
+		return "", io.EOF
+	} else if !n.s.Scan() {
+		err := n.s.Err()
+		// According to <https://pkg.go.dev/bufio#Scanner>: "Scanning
+		// stops unrecoverably at EOF, the first I/O error, or a token
+		// too large to fit in the buffer". So as soon as we encounter
+		// any of these situations, set `n.s` to `nil` and return
+		// `io.EOF` on every subsequent call.
+		n.s = nil
+		if err != nil {
+			return "", err
+		}
+		return "", io.EOF
+	}
+	return n.s.Text(), nil
+}
+
+func (n *noninteractive) setIgnoreEOF(_ bool) {
+	// We never want to ignore EOF in non-interactive mode, otherwise we'll
+	// get stuck in an infinite loop when we hit the end of the script.
+}
+
+func (n *noninteractive) setPrompt(_ string) {
+	// Do nothing.
+}
+
+func (n *noninteractive) setViMode(_ bool) {
+	// Do nothing.
 }

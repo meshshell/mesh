@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -78,8 +79,8 @@ func TestScriptFromStdin(t *testing.T) {
 }
 
 func TestExit(t *testing.T) {
-	tests := []struct{
-		name string
+	tests := []struct {
+		name   string
 		script string
 		status int
 	}{
@@ -142,4 +143,20 @@ func TestErrorCases(t *testing.T) {
 			assert.NotEmpty(t, stderr.String())
 		})
 	}
+}
+
+type mockReader struct{}
+
+func (r *mockReader) Read(p []byte) (n int, err error) {
+	return 0, errors.New("mock error")
+}
+
+func TestScannerError(t *testing.T) {
+	n := newNonInteractive(&mockReader{})
+	stdin := mustOpen(t, os.DevNull)
+	var stdout, stderr strings.Builder
+	status := repl(t.Name(), n, &stdio{stdin, &stdout, &stderr})
+	assert.Equal(t, 0, status)
+	assert.Empty(t, stdout.String())
+	assert.Equal(t, "mesh: mock error\n", stderr.String())
 }
