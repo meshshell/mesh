@@ -22,40 +22,38 @@ import (
 	"github.com/meshshell/mesh/token"
 )
 
-// This lexer is structured like the lexer described in this talk:
-// - Video: https://www.youtube.com/watch?v=HxaD_trXwRE
-// - Slides: https://talks.golang.org/2011/lex.slide
-// However it does not implement the "new API" on slide 39-42, because:
-// - We don't need to run this lexer during initialization
-// - Apparently the restriction was lifted in Go 1 anyway...
-
 type lexeme struct {
 	tok  token.Token
 	text string
+}
+
+func (l *lexeme) String() string {
+	return fmt.Sprintf("%v(%v)", l.tok, l.text)
 }
 
 type stateFn func(*lexer) stateFn
 
 type lexer struct {
 	name    string
-	input   string
 	lexemes chan lexeme
+	state   stateFn
+	input   string
 	start   int
 	pos     int
 	width   int
 }
 
-func lex(name, input string) (*lexer, chan lexeme) {
-	l := &lexer{name: name, input: input, lexemes: make(chan lexeme)}
-	go l.run()
-	return l, l.lexemes
+func newLexer(name string) *lexer {
+	return &lexer{name: name, lexemes: make(chan lexeme), state: lexStart}
 }
 
-func (l *lexer) run() {
-	for state := lexText; state != nil; {
-		state = state(l)
+func (l *lexer) lex(input string) {
+	l.input = input
+	l.start, l.pos, l.width = 0, 0, 0
+	for l.pos < len(l.input) {
+		l.state = l.state(l)
 	}
-	close(l.lexemes)
+	l.emit(token.Newline)
 }
 
 func (l *lexer) emit(t token.Token) {
@@ -67,12 +65,12 @@ func (l *lexer) emitWithText(t token.Token, text string) {
 	l.start = l.pos
 }
 
-const eof = -1
+const endOfLine = -1
 
 func (l *lexer) next() rune {
 	if l.pos >= len(l.input) {
 		l.width = 0
-		return eof
+		return endOfLine
 	}
 	var r rune
 	r, l.width = utf8.DecodeRuneInString(l.input[l.pos:])
@@ -84,33 +82,35 @@ func (l *lexer) ignore() {
 	l.start = l.pos
 }
 
-func (l *lexer) backup() {
-	l.pos -= l.width
+func (l *lexer) backup(r rune) {
+	if r == endOfLine {
+		return
+	}
+	_, width := utf8.DecodeRune([]byte(string(r)))
+	l.pos -= width
 }
 
 func (l *lexer) peek() rune {
 	r := l.next()
-	l.backup()
+	l.backup(r)
 	return r
 }
 
 func (l *lexer) accept(valid string) bool {
-	if strings.IndexRune(valid, l.next()) >= 0 {
+	r := l.next()
+	if strings.ContainsRune(valid, r) {
 		return true
 	}
-	l.backup()
+	l.backup(r)
 	return false
 }
 
 func (l *lexer) acceptRun(valid string) {
-	for strings.IndexRune(valid, l.next()) >= 0 {
+	r := l.next()
+	for strings.ContainsRune(valid, r) {
+		r = l.next()
 	}
-	l.backup()
-}
-
-func (l *lexer) errorf(format string, args ...interface{}) stateFn {
-	l.lexemes <- lexeme{token.Illegal, fmt.Sprintf(format, args...)}
-	return nil
+	l.backup(r)
 }
 
 func (l *lexer) save() string {
@@ -126,64 +126,82 @@ const special = ";|$<>"
 const whitespace = " \t\n"
 const quotes = `'"`
 
-func lexText(l *lexer) stateFn {
+func lexStart(l *lexer) stateFn {
 	l.acceptRun(whitespace)
 	l.ignore()
 
-	if r := l.peek(); r == eof {
-		return nil
+	switch r := l.next(); r {
+	case '\\':
+		if r2 := l.peek(); r2 == endOfLine {
+			l.ignore()
+			return lexStart
+		}
+		return lexUnquoted
+	case '\'':
+		l.ignore()
+		return lexSingleQuoted(l)
+	case '"':
+		l.ignore()
+		return lexDoubleQuoted(l)
+	case '|':
+		l.emit(token.Pipe)
+		return lexStart
+	case endOfLine:
+		return lexStart
+	default:
+		l.backup(r)
+		return lexUnquoted
 	}
-
-	return lexString
 }
 
-func lexString(l *lexer) stateFn {
-	// We keep track of the delimiter (if any) so that we know when this
-	// string ends. But the lexer output does not include the opening, or
-	// closing, quote runes, so ignore the first character if it is a quote.
-	delimiter := whitespace
-	if r := l.peek(); strings.ContainsRune(quotes, r) {
-		delimiter = string(l.next())
-		l.ignore()
-	}
+func lexSingleQuoted(l *lexer) stateFn {
+	return lexString(l, `'`, lexSingleQuoted)
+}
 
+func lexDoubleQuoted(l *lexer) stateFn {
+	return lexString(l, `"`, lexDoubleQuoted)
+}
+
+func lexUnquoted(l *lexer) stateFn {
+	return lexString(l, special+whitespace, lexUnquoted)
+}
+
+func lexString(l *lexer, delimiter string, continuation stateFn) stateFn {
 	// A string might contain escaped characters in it, such as "\\" (an
 	// escaped backslash). The lexer replaces the escape sequences with the
 	// escaped characters (i.e. "\\" with "\"). This is done by copying over
 	// substrings from the input into a `string.Builder`, with escape
 	// sequences replaced appropriately.
 	var b strings.Builder
-
-	for escape := false; ; {
+	for escaped := false; ; {
 		r := l.next()
-		if escape {
+		if escaped {
 			// For now, we just treat any escaped rune as a literal
 			// of that rune (e.g. "\ " is an escaped space).
 			// TODO: map escape sequences like "\n" into a newline.
-			b.WriteRune(r)
-			l.ignore()
-			escape = false
+			if r != endOfLine {
+				b.WriteRune(r)
+				l.ignore()
+			}
+			escaped = false
 			continue
 		} else if r == '\\' {
 			b.WriteString(l.save())
-			escape = true
+			escaped = true
 			continue
 		} else if strings.ContainsRune(delimiter, r) {
 			b.WriteString(l.save())
 			l.emitWithText(token.String, b.String())
-			return lexText
-		} else if r == eof {
+			return lexStart
+		} else if r == endOfLine {
 			b.WriteString(l.save())
-			t := token.String
-			if delimiter == `'` {
-				t = token.SubString1
+			if delimiter == `'` || delimiter == `"` {
 				b.WriteRune('\n')
-			} else if delimiter == `"` {
-				t = token.SubString2
-				b.WriteRune('\n')
+				l.emitWithText(token.SubString, b.String())
+			} else {
+				l.emitWithText(token.String, b.String())
 			}
-			l.emitWithText(t, b.String())
-			return lexText
+			return continuation
 		}
 	}
 }

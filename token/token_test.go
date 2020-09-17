@@ -15,34 +15,24 @@
 package token
 
 import (
-	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-type Token int
+func TestTokenString(t *testing.T) {
+	tests := []struct{
+		name string
+		tok Token
+		want string
+	}{
+		{"String", String, "String"},
+		{"Unknown", -1, "(unknown -1)"},
+	}
 
-const (
-	Illegal Token = iota
-	Newline
-
-	String
-	SubString
-
-	Pipe
-)
-
-func (t Token) String() string {
-	switch t {
-	case Illegal:
-		return "Illegal"
-	case Newline:
-		return "Newline"
-	case String:
-		return "String"
-	case SubString:
-		return "SubString"
-	case Pipe:
-		return "Pipe"
-	default:
-		return fmt.Sprintf("(unknown %d)", t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, test.tok.String())
+		})
 	}
 }

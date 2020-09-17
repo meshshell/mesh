@@ -78,6 +78,15 @@ func TestScriptFromStdin(t *testing.T) {
 	assert.Empty(t, stderr.String())
 }
 
+func TestMultiLineScript(t *testing.T) {
+	stdin := mustOpen(t, createFile(t, "echo foo\necho 'bar\nbaz'\n"))
+	var stdout, stderr strings.Builder
+	status := mesh("mesh", []string{}, &stdio{stdin, &stdout, &stderr})
+	assert.Equal(t, 0, status)
+	assert.Equal(t, "foo\nbar\nbaz\n", stdout.String())
+	assert.Empty(t, stderr.String())
+}
+
 func TestExit(t *testing.T) {
 	tests := []struct {
 		name   string

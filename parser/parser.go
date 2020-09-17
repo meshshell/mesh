@@ -15,40 +15,83 @@
 package parser
 
 import (
-	"errors"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/meshshell/mesh/ast"
 	"github.com/meshshell/mesh/token"
 )
 
 type Parser struct {
-	filename string
+	lex    *lexer
+	done   chan bool
+	lock   sync.Mutex
+	locked bool
+	stmt   ast.Stmt
+	err    error
 }
 
 func NewParser(filename string) *Parser {
-	return &Parser{filename}
+	return &Parser{
+		lex:  newLexer(filename),
+		done: make(chan bool),
+	}
 }
 
-func (p *Parser) Parse(line string) (ast.Stmt, error) {
-	_, lexemes := lex(p.filename, line)
+func (p *Parser) Parse(line string) bool {
+	if !p.locked {
+		go p.parseStmt()
+	}
+	p.lex.lex(line)
+	return <-p.done
+}
+
+func (p *Parser) Result() (ast.Stmt, error) {
+	if p.locked {
+		panic("parser: Parser.Result() called before parsing completed")
+	}
+	return p.stmt, p.err
+}
+
+func (p *Parser) parseStmt() {
+	p.lock.Lock()
+	p.locked = true
+	p.stmt, p.err = nil, nil
+	defer func() {
+		p.locked = false
+		p.done <- true
+		p.lock.Unlock()
+	}()
+
 	var argv []string
-	for lexeme := range lexemes {
-		if lexeme.tok == token.SubString1 ||
-			lexeme.tok == token.SubString2 {
-			msg := "multi-line strings are not yet implemented"
-			return nil, fmt.Errorf("parser: %s", msg)
-		} else if lexeme.tok != token.String {
-			return nil, fmt.Errorf(
+	var tmp strings.Builder
+	for lexeme := range p.lex.lexemes {
+		switch lexeme.tok {
+		case token.SubString:
+			tmp.WriteString(lexeme.text)
+		case token.String:
+			if tmp.Len() == 0 {
+				argv = append(argv, lexeme.text)
+			} else {
+				tmp.WriteString(lexeme.text)
+				argv = append(argv, tmp.String())
+				tmp.Reset()
+			}
+		case token.Newline:
+			if tmp.Len() == 0 {
+				if len(argv) == 0 {
+					argv = []string{""}
+				}
+				p.stmt = &ast.Cmd{Name: argv[0], Args: argv[1:]}
+				return
+			} else {
+				p.done <- false
+			}
+		default:
+			p.err = fmt.Errorf(
 				"parser: unexpected token %q", lexeme.text)
-		} else if lexeme.text == "|" {
-			return nil, errors.New(
-				"parser: pipes are not yet implemented")
+			continue
 		}
-		argv = append(argv, lexeme.text)
 	}
-	if len(argv) == 0 {
-		return &ast.Cmd{}, nil
-	}
-	return &ast.Cmd{Name: argv[0], Args: argv[1:]}, nil
 }

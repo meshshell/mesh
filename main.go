@@ -90,7 +90,12 @@ func repl(filename string, s scanner, std *stdio) int {
 			fmt.Fprintf(std.err, "mesh: %v\n", err)
 			continue
 		}
-		stmt, err := parse.Parse(line)
+		if done := parse.Parse(line); !done {
+			s.setPrompt(". ")
+			continue
+		}
+		s.setPrompt("] ")
+		stmt, err := parse.Result()
 		if err != nil {
 			status = 1
 			fmt.Fprintf(std.err, "mesh: %v\n", err)
