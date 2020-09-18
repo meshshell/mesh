@@ -66,6 +66,7 @@ func (p *Parser) parseStmt() {
 
 	var argv []string
 	var tmp strings.Builder
+	escaped := false
 	for lexeme := range p.lex.lexemes {
 		switch lexeme.tok {
 		case token.SubString:
@@ -78,8 +79,13 @@ func (p *Parser) parseStmt() {
 				argv = append(argv, tmp.String())
 				tmp.Reset()
 			}
+		case token.Escape:
+			escaped = true
 		case token.Newline:
-			if tmp.Len() == 0 {
+			if escaped {
+				escaped = false
+				p.done <- false
+			} else if tmp.Len() == 0 {
 				if len(argv) == 0 {
 					argv = []string{""}
 				}

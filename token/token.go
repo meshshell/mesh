@@ -23,6 +23,7 @@ type Token int
 const (
 	Illegal Token = iota
 	Newline
+	Escape
 
 	String
 	SubString

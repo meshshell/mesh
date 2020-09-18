@@ -46,7 +46,7 @@ func TestLexerStrings(t *testing.T) {
 		{"ExtraSpaces", ` a  b\ c  `, []string{"a", "b c"}},
 		{"SingleQuoted", `a 'b  c\'"'`, []string{"a", `b  c'"`}},
 		{"DoubleQuoted", `a "b  c'\""`, []string{"a", `b  c'"`}},
-		{"StartsWithEscape", "echo \\\\", []string{"echo", "\\" }},
+		{"StartsWithEscape", "echo \\\\", []string{"echo", "\\"}},
 	}
 
 	for _, test := range tests {
@@ -57,11 +57,15 @@ func TestLexerStrings(t *testing.T) {
 				defer close(done)
 				for _, want := range test.output {
 					got := <-l.lexemes
+					t.Logf("got %q", got.text)
 					assert.Equal(t, token.String, got.tok)
 					assert.Equal(t, want, got.text)
 				}
-				newline := <-l.lexemes
-				assert.Equal(t, token.Newline, newline.tok)
+				last := <-l.lexemes
+				assert.Equal(t, token.Newline, last.tok,
+					"token.%v=%d, token.%v=%d",
+					token.Newline, token.Newline,
+					last.tok, last.tok)
 			}()
 			l.lex(test.input)
 			timeout(t, 100*time.Millisecond, done)
@@ -76,7 +80,7 @@ func TestLexerMultiLineStrings(t *testing.T) {
 		outputs []lexeme
 	}{
 		{
-			"TwoLines",
+			"QuotedOverTwoLines",
 			[]string{"echo 'two", "lines'"},
 			[]lexeme{
 				{token.String, "echo"},
@@ -86,21 +90,32 @@ func TestLexerMultiLineStrings(t *testing.T) {
 				{token.Newline, ""},
 			},
 		}, {
+			"UnquotedOverTwoLines",
+			[]string{"echo two\\", "lines"},
+			[]lexeme{
+				{token.String, "echo"},
+				{token.SubString, "two"},
+				{token.Newline, ""},
+				{token.String, "lines"},
+				{token.Newline, ""},
+			},
+		}, {
 			"EscapedNewline",
 			[]string{"echo \\", "foo"},
 			[]lexeme{
 				{token.String, "echo"},
+				{token.Escape, "\\"},
 				{token.Newline, ""},
 				{token.String, "foo"},
 				{token.Newline, ""},
 			},
 		}, {
 			"StartsWithQuote",
-			[]string{"'", "baz'"},
+			[]string{"'", "bar'"},
 			[]lexeme{
 				{token.SubString, "\n"},
 				{token.Newline, ""},
-				{token.String, "baz"},
+				{token.String, "bar"},
 				{token.Newline, ""},
 			},
 		},
@@ -115,8 +130,9 @@ func TestLexerMultiLineStrings(t *testing.T) {
 				for _, want := range test.outputs {
 					got := <-l.lexemes
 					assert.Equal(t, want, got,
-						"wanted token.%v, got token.%v",
-						want.tok, got.tok)
+						"token.%v=%d, token.%v=%d",
+						want.tok, want.tok,
+						got.tok, got.tok)
 				}
 			}()
 			for _, line := range test.inputs {

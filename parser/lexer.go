@@ -31,92 +31,21 @@ func (l *lexeme) String() string {
 	return fmt.Sprintf("%v(%v)", l.tok, l.text)
 }
 
-type stateFn func(*lexer) stateFn
+type stateFn func(*lexer, string, int) stateFn
 
 type lexer struct {
 	name    string
 	lexemes chan lexeme
 	state   stateFn
-	input   string
-	start   int
-	pos     int
-	width   int
 }
 
 func newLexer(name string) *lexer {
 	return &lexer{name: name, lexemes: make(chan lexeme), state: lexStart}
 }
 
-func (l *lexer) lex(input string) {
-	l.input = input
-	l.start, l.pos, l.width = 0, 0, 0
-	for l.pos < len(l.input) {
-		l.state = l.state(l)
-	}
-	l.emit(token.Newline)
-}
-
-func (l *lexer) emit(t token.Token) {
-	l.emitWithText(t, l.input[l.start:l.pos])
-}
-
-func (l *lexer) emitWithText(t token.Token, text string) {
-	l.lexemes <- lexeme{t, text}
-	l.start = l.pos
-}
-
-const endOfLine = -1
-
-func (l *lexer) next() rune {
-	if l.pos >= len(l.input) {
-		l.width = 0
-		return endOfLine
-	}
-	var r rune
-	r, l.width = utf8.DecodeRuneInString(l.input[l.pos:])
-	l.pos += l.width
-	return r
-}
-
-func (l *lexer) ignore() {
-	l.start = l.pos
-}
-
-func (l *lexer) backup(r rune) {
-	if r == endOfLine {
-		return
-	}
-	_, width := utf8.DecodeRune([]byte(string(r)))
-	l.pos -= width
-}
-
-func (l *lexer) peek() rune {
-	r := l.next()
-	l.backup(r)
-	return r
-}
-
-func (l *lexer) accept(valid string) bool {
-	r := l.next()
-	if strings.ContainsRune(valid, r) {
-		return true
-	}
-	l.backup(r)
-	return false
-}
-
-func (l *lexer) acceptRun(valid string) {
-	r := l.next()
-	for strings.ContainsRune(valid, r) {
-		r = l.next()
-	}
-	l.backup(r)
-}
-
-func (l *lexer) save() string {
-	tmp := l.input[l.start : l.pos-l.width]
-	l.ignore()
-	return tmp
+func (l *lexer) lex(line string) {
+	l.state = l.state(l, line, 0)
+	l.lexemes <- lexeme{tok: token.Newline}
 }
 
 const digits = "0123456789"
@@ -126,82 +55,91 @@ const special = ";|$<>"
 const whitespace = " \t\n"
 const quotes = `'"`
 
-func lexStart(l *lexer) stateFn {
-	l.acceptRun(whitespace)
-	l.ignore()
+func lexStart(l *lexer, line string, pos int) stateFn {
+	prevLen := len(line)
+	line = strings.TrimLeft(line, whitespace)
+	pos += len(line) - prevLen
 
-	switch r := l.next(); r {
-	case '\\':
-		if r2 := l.peek(); r2 == endOfLine {
-			l.ignore()
-			return lexStart
-		}
-		return lexUnquoted
+	if line == "" {
+		return lexStart
+	} else if line == "\\" {
+		l.lexemes <- lexeme{token.Escape, line}
+		return lexStart
+	}
+
+	switch r, width := utf8.DecodeRuneInString(line); r {
 	case '\'':
-		l.ignore()
-		return lexSingleQuoted(l)
+		return lexSingleQuoted(l, line[width:], pos+width)
 	case '"':
-		l.ignore()
-		return lexDoubleQuoted(l)
+		return lexDoubleQuoted(l, line[width:], pos+width)
 	case '|':
-		l.emit(token.Pipe)
-		return lexStart
-	case endOfLine:
-		return lexStart
+		l.lexemes <- lexeme{token.Pipe, string(r)}
+		return lexStart(l, line[width:], pos+width)
 	default:
-		l.backup(r)
-		return lexUnquoted
+		return lexUnquoted(l, line, pos)
 	}
 }
 
-func lexSingleQuoted(l *lexer) stateFn {
-	return lexString(l, `'`, lexSingleQuoted)
+func lexSingleQuoted(l *lexer, line string, pos int) stateFn {
+	return quoted(l, line, pos, '\'', lexSingleQuoted)
 }
 
-func lexDoubleQuoted(l *lexer) stateFn {
-	return lexString(l, `"`, lexDoubleQuoted)
+func lexDoubleQuoted(l *lexer, line string, pos int) stateFn {
+	return quoted(l, line, pos, '"', lexDoubleQuoted)
 }
 
-func lexUnquoted(l *lexer) stateFn {
-	return lexString(l, special+whitespace, lexUnquoted)
+func quoted(l *lexer, line string, pos int, quote rune, next stateFn) stateFn {
+	text, size := decodeString(line, pos, string(quote))
+	line = line[size:]
+	pos += size
+	if r, _ := utf8.DecodeRuneInString(line); r != quote {
+		l.lexemes <- lexeme{token.SubString, text}
+		return next
+	}
+	l.lexemes <- lexeme{token.String, text}
+	return lexStart(l, line[1:], pos+1)
 }
 
-func lexString(l *lexer, delimiter string, continuation stateFn) stateFn {
-	// A string might contain escaped characters in it, such as "\\" (an
-	// escaped backslash). The lexer replaces the escape sequences with the
-	// escaped characters (i.e. "\\" with "\"). This is done by copying over
-	// substrings from the input into a `string.Builder`, with escape
-	// sequences replaced appropriately.
-	var b strings.Builder
-	for escaped := false; ; {
-		r := l.next()
+func lexUnquoted(l *lexer, line string, pos int) stateFn {
+	text, size := decodeString(line, pos, special+whitespace)
+	line = line[size:]
+	pos += size
+	if line == "\\" {
+		l.lexemes <- lexeme{token.SubString, text}
+		return lexUnquoted
+	}
+	l.lexemes <- lexeme{token.String, text}
+	return lexStart(l, line, pos)
+}
+
+func decodeString(line string, pos int, delimiter string) (string, int) {
+	escaped := false
+	start := 0
+	var text strings.Builder
+	for i, r := range line {
 		if escaped {
+			escaped = false
+			start = i + utf8.RuneLen(r)
 			// For now, we just treat any escaped rune as a literal
 			// of that rune (e.g. "\ " is an escaped space).
 			// TODO: map escape sequences like "\n" into a newline.
-			if r != endOfLine {
-				b.WriteRune(r)
-				l.ignore()
-			}
-			escaped = false
+			text.WriteRune(r)
 			continue
 		} else if r == '\\' {
-			b.WriteString(l.save())
 			escaped = true
+			text.WriteString(line[start:i])
 			continue
 		} else if strings.ContainsRune(delimiter, r) {
-			b.WriteString(l.save())
-			l.emitWithText(token.String, b.String())
-			return lexStart
-		} else if r == endOfLine {
-			b.WriteString(l.save())
-			if delimiter == `'` || delimiter == `"` {
-				b.WriteRune('\n')
-				l.emitWithText(token.SubString, b.String())
-			} else {
-				l.emitWithText(token.String, b.String())
-			}
-			return continuation
+			text.WriteString(line[start:i])
+			return text.String(), i
 		}
 	}
+	if escaped {
+		return text.String(), len(line) - 1
+	}
+	text.WriteString(line[start:])
+	if delimiter == `'` || delimiter == `"` {
+		text.WriteRune('\n')
+	}
+	return text.String(), len(line)
 }

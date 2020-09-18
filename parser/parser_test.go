@@ -33,7 +33,8 @@ func TestParse(t *testing.T) {
 		{"EmptyString", []string{""}, "", []string{}},
 		{"OneWord", []string{"ls"}, "ls", []string{}},
 		{"TwoWords", []string{"ls -l"}, "ls", []string{"-l"}},
-		{"TwoLines", []string{"a 'b", "c'"}, "a", []string{"b\nc"}},
+		{"MultiLine", []string{"a 'b", "c'"}, "a", []string{"b\nc"}},
+		{"JoinLines", []string{"a \\", "b"}, "a", []string{"b"}},
 	}
 
 	for _, test := range tests {
