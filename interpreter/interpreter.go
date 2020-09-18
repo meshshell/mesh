@@ -28,7 +28,9 @@ type Interpreter struct {
 }
 
 func (i *Interpreter) VisitCmd(c *ast.Cmd) (int, error) {
-	if b, ok := newBuiltin(c.Name, c.Args); ok {
+	if c.Name == "" {
+		return 0, nil
+	} else if b, ok := newBuiltin(c.Name, c.Args); ok {
 		if err := b.run(); err != nil {
 			return 1, err
 		}
