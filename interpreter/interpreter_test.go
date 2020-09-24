@@ -31,14 +31,13 @@ func TestInterpreter(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		cmd     string
-		args    []string
+		argv    []string
 		success bool
 	}{
-		{"NopCommand", "", []string{}, true},
-		{"BuiltinSucceeds", "cd", []string{home}, true},
-		{"BuiltinFails", "cd", []string{os.DevNull}, false},
-		{"NormalCommand", "true", []string{}, true},
+		{"NopCommand", []string{}, true},
+		{"BuiltinSucceeds", []string{"cd", home}, true},
+		{"BuiltinFails", []string{"cd", os.DevNull}, false},
+		{"NormalCommand", []string{"true"}, true},
 	}
 
 	stdin, err := os.Open(os.DevNull)
@@ -49,7 +48,11 @@ func TestInterpreter(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr strings.Builder
 			interp := Interpreter{stdin, &stdout, &stderr}
-			cmd := &ast.Cmd{Name: test.cmd, Args: test.args}
+			var exprs []ast.Expr
+			for _, text := range test.argv {
+				exprs = append(exprs, ast.String{Text: text})
+			}
+			cmd := &ast.Cmd{Argv: exprs}
 			status, err := interp.VisitCmd(cmd)
 			if test.success {
 				assert.Equal(t, 0, status)

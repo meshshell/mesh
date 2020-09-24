@@ -27,14 +27,13 @@ func TestParse(t *testing.T) {
 	tests := []struct {
 		name   string
 		inputs []string
-		cmd    string
-		args   []string
+		argv   []string
 	}{
-		{"EmptyString", []string{""}, "", []string{}},
-		{"OneWord", []string{"ls"}, "ls", []string{}},
-		{"TwoWords", []string{"ls -l"}, "ls", []string{"-l"}},
-		{"MultiLine", []string{"a 'b", "c'"}, "a", []string{"b\nc"}},
-		{"JoinLines", []string{"a \\", "b"}, "a", []string{"b"}},
+		{"EmptyString", []string{""}, []string{}},
+		{"OneWord", []string{"ls"}, []string{"ls"}},
+		{"TwoWords", []string{"ls -l"}, []string{"ls", "-l"}},
+		{"MultiLine", []string{"a 'b", "c'"}, []string{"a", "b\nc"}},
+		{"JoinLines", []string{"a \\", "b"}, []string{"a", "b"}},
 	}
 
 	for _, test := range tests {
@@ -48,14 +47,19 @@ func TestParse(t *testing.T) {
 			require.NoError(t, err)
 			cmd, ok := stmt.(*ast.Cmd)
 			require.True(t, ok)
-			assert.Equal(t, test.cmd, cmd.Name)
-			assert.Equal(t, test.args, cmd.Args)
+			assert.Equal(t, len(test.argv), len(cmd.Argv))
+			for i, want := range test.argv {
+				word := cmd.Argv[i].(*ast.Word)
+				str := word.SubExprs[0].(ast.String)
+				got := str.Text
+				assert.Equal(t, want, got)
+			}
 		})
 	}
 }
 
 func TestParserResultWhileLocked(t *testing.T) {
 	p := NewParser(t.Name())
-	require.False(t, p.Parse("echo 'asdf"))
+	require.False(t, p.Parse("echo 'unterminated string"))
 	assert.Panics(t, func() { p.Result() })
 }

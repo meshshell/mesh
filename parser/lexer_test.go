@@ -24,66 +24,125 @@ import (
 )
 
 func TestLexemeString(t *testing.T) {
-	l := &lexeme{token.SubString, "mesh"}
-	assert.Equal(t, "SubString(mesh)", l.String())
+	l := lexeme{token.SubString, "mesh"}
+	assert.Equal(t, `SubString("mesh")`, l.String())
 }
 
-func timeout(t *testing.T, d time.Duration, done chan struct{}) {
+type lexerTest struct {
+	name    string
+	inputs  []string
+	outputs []lexeme
+}
+
+func (test *lexerTest) run(t *testing.T) {
+	start := time.Now()
+	lex := newLexer(test.name)
+	lexerDone := make(chan struct{})
+	go func() {
+		defer close(lexerDone)
+		for _, line := range test.inputs {
+			lex.lex(line)
+		}
+	}()
+	assertsDone := make(chan struct{})
+	go func() {
+		defer close(assertsDone)
+		for _, want := range test.outputs {
+			got := <-lex.lexemes
+			assert.Equal(t, want, got, "want %v, got %v", want, got)
+		}
+	}()
+	timeoutDuration := 100 * time.Millisecond
+	timeout := time.After(timeoutDuration)
 	select {
-	case <-time.After(d):
-		t.Fail()
-	case <-done:
+	case <-lexerDone:
+		select {
+		case <-assertsDone:
+			break
+		case <-timeout:
+			t.Fatal("timed out waiting for asserts")
+		}
+	case <-assertsDone:
+		select {
+		case <-lexerDone:
+			break
+		case l := <-lex.lexemes:
+			t.Fatalf("unexpected lexeme: %v", l)
+		case <-timeout:
+			t.Fatal("timed out waiting for lexer")
+		}
+	case <-timeout:
+		t.Fatal("timed out waiting for lexer and asserts (deadlock?)")
+	}
+	if time.Since(start) >= timeoutDuration/2 {
+		t.Logf("warning: %s took %v, consider increasing timeout",
+			t.Name(), time.Since(start))
 	}
 }
 
 func TestLexerStrings(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		output []string
-	}{
-		{"Command", "ls -l", []string{"ls", "-l"}},
-		{"ExtraSpaces", ` a  b\ c  `, []string{"a", "b c"}},
-		{"SingleQuoted", `a 'b  c\'"'`, []string{"a", `b  c'"`}},
-		{"DoubleQuoted", `a "b  c'\""`, []string{"a", `b  c'"`}},
-		{"StartsWithEscape", "echo \\\\", []string{"echo", "\\"}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			l := newLexer(t.Name())
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for _, want := range test.output {
-					got := <-l.lexemes
-					t.Logf("got %q", got.text)
-					assert.Equal(t, token.String, got.tok)
-					assert.Equal(t, want, got.text)
-				}
-				last := <-l.lexemes
-				assert.Equal(t, token.Newline, last.tok,
-					"token.%v=%d, token.%v=%d",
-					token.Newline, token.Newline,
-					last.tok, last.tok)
-			}()
-			l.lex(test.input)
-			timeout(t, 100*time.Millisecond, done)
-		})
+	for _, test := range []lexerTest{
+		{
+			"Command",
+			[]string{"ls -l"},
+			[]lexeme{
+				{token.String, "ls"},
+				{token.Whitespace, " "},
+				{token.String, "-l"},
+				{token.Newline, ""},
+			},
+		}, {
+			"ExtraSpaces",
+			[]string{` a  b\ c   `},
+			[]lexeme{
+				{token.Whitespace, " "},
+				{token.String, "a"},
+				{token.Whitespace, "  "},
+				{token.String, "b c"},
+				{token.Whitespace, "   "},
+				{token.Newline, ""},
+			},
+		}, {
+			"SingleQuoted",
+			[]string{`a 'b  c\'"'`},
+			[]lexeme{
+				{token.String, "a"},
+				{token.Whitespace, " "},
+				{token.String, `b  c'"`},
+				{token.Newline, ""},
+			},
+		}, {
+			"DoubleQuoted",
+			[]string{`a "b  c'\""`},
+			[]lexeme{
+				{token.String, "a"},
+				{token.Whitespace, " "},
+				{token.String, `b  c'"`},
+				{token.Newline, ""},
+			},
+		}, {
+			"StartsWithEscape",
+			[]string{"echo \\\\"},
+			[]lexeme{
+				{token.String, "echo"},
+				{token.Whitespace, " "},
+				{token.String, "\\"},
+				{token.Newline, ""},
+			},
+		},
+	} {
+		t.Run(test.name, test.run)
 	}
 }
 
 func TestLexerMultiLineStrings(t *testing.T) {
-	tests := []struct {
-		name    string
-		inputs  []string
-		outputs []lexeme
-	}{
+	for _, test := range []lexerTest{
 		{
 			"QuotedOverTwoLines",
 			[]string{"echo 'two", "lines'"},
 			[]lexeme{
 				{token.String, "echo"},
+				{token.Whitespace, " "},
 				{token.SubString, "two\n"},
 				{token.Newline, ""},
 				{token.String, "lines"},
@@ -94,8 +153,9 @@ func TestLexerMultiLineStrings(t *testing.T) {
 			[]string{"echo two\\", "lines"},
 			[]lexeme{
 				{token.String, "echo"},
+				{token.Whitespace, " "},
 				{token.SubString, "two"},
-				{token.Newline, ""},
+				{token.Newline, "\\"},
 				{token.String, "lines"},
 				{token.Newline, ""},
 			},
@@ -104,8 +164,8 @@ func TestLexerMultiLineStrings(t *testing.T) {
 			[]string{"echo \\", "foo"},
 			[]lexeme{
 				{token.String, "echo"},
-				{token.Escape, "\\"},
-				{token.Newline, ""},
+				{token.Whitespace, " "},
+				{token.EscapedNewline, "\\"},
 				{token.String, "foo"},
 				{token.Newline, ""},
 			},
@@ -119,26 +179,50 @@ func TestLexerMultiLineStrings(t *testing.T) {
 				{token.Newline, ""},
 			},
 		},
+	} {
+		t.Run(test.name, test.run)
 	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			l := newLexer(test.name)
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for _, want := range test.outputs {
-					got := <-l.lexemes
-					assert.Equal(t, want, got,
-						"token.%v=%d, token.%v=%d",
-						want.tok, want.tok,
-						got.tok, got.tok)
-				}
-			}()
-			for _, line := range test.inputs {
-				l.lex(line)
-			}
-			timeout(t, 100*time.Millisecond, done)
-		})
+func TestLexerTildes(t *testing.T) {
+	for _, test := range []lexerTest{
+		{
+			"Tilde",
+			[]string{"cd ~"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.Tilde, "~"},
+				{token.Newline, ""},
+			},
+		}, {
+			"TildeWithPath",
+			[]string{"cd ~/bin"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.Tilde, "~"},
+				{token.String, "/bin"},
+				{token.Newline, ""},
+			},
+		}, {
+			// On the one hand, it would be nice to be able to write
+			// `file://~/index.html` and have it expand to the
+			// user's home directory. But on the other hand, `~` is
+			// a traditional suffix for backup files (e.g., see
+			// https://unix.stackexchange.com/q/76189). So, Mesh
+			// follows Unix tradition here and only treats `~` as a
+			// special character if it is at the start of a word.
+			"TildeAtMiddleAndEndOfWordIsNotSpecial",
+			[]string{"cd /~/~"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.String, "/~/~"},
+				{token.Newline, ""},
+			},
+		},
+	} {
+		t.Run(test.name, test.run)
 	}
 }

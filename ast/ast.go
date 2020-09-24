@@ -23,10 +23,43 @@ type StmtVisitor interface {
 }
 
 type Cmd struct {
-	Name string
-	Args []string
+	Argv []Expr
 }
 
 func (c *Cmd) Visit(v StmtVisitor) (int, error) {
 	return v.VisitCmd(c)
+}
+
+type Expr interface {
+	Visit(v ExprVisitor) (string, error)
+}
+
+type ExprVisitor interface {
+	VisitString(s String) (string, error)
+	VisitTilde(t Tilde) (string, error)
+	VisitWord(w Word) (string, error)
+}
+
+type String struct {
+	Text string
+}
+
+func (s String) Visit(v ExprVisitor) (string, error) {
+	return v.VisitString(s)
+}
+
+type Tilde struct {
+	Text string
+}
+
+func (t Tilde) Visit(v ExprVisitor) (string, error) {
+	return v.VisitTilde(t)
+}
+
+type Word struct {
+	SubExprs []Expr
+}
+
+func (w Word) Visit(v ExprVisitor) (string, error) {
+	return v.VisitWord(w)
 }

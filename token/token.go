@@ -21,29 +21,38 @@ import (
 type Token int
 
 const (
-	Illegal Token = iota
+	tokenBegin = iota
+
 	Newline
-	Escape
+	EscapedNewline
+	Whitespace
 
 	String
 	SubString
 
 	Pipe
+	Tilde
+
+	tokenEnd
 )
 
 func (t Token) String() string {
 	switch t {
-	case Illegal:
-		return "Illegal"
 	case Newline:
 		return "Newline"
+	case EscapedNewline:
+		return "EscapedNewline"
+	case Whitespace:
+		return "Whitespace"
 	case String:
 		return "String"
 	case SubString:
 		return "SubString"
 	case Pipe:
 		return "Pipe"
+	case Tilde:
+		return "Tilde"
 	default:
-		return fmt.Sprintf("(unknown %d)", t)
+		panic(fmt.Sprintf("invalid token.Token: %d", t))
 	}
 }

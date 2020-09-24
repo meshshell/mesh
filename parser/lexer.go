@@ -27,8 +27,8 @@ type lexeme struct {
 	text string
 }
 
-func (l *lexeme) String() string {
-	return fmt.Sprintf("%v(%v)", l.tok, l.text)
+func (l lexeme) String() string {
+	return fmt.Sprintf("%v(%q)", l.tok, l.text)
 }
 
 type stateFn func(*lexer, string, int) stateFn
@@ -45,36 +45,44 @@ func newLexer(name string) *lexer {
 
 func (l *lexer) lex(line string) {
 	l.state = l.state(l, line, 0)
-	l.lexemes <- lexeme{tok: token.Newline}
 }
 
 const digits = "0123456789"
 const lowercase = "abcdefghijklmnopqrstuvwxyz"
 const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const special = ";|$<>"
+const special = "|"
 const whitespace = " \t\n"
 const quotes = `'"`
 
 func lexStart(l *lexer, line string, pos int) stateFn {
-	prevLen := len(line)
-	line = strings.TrimLeft(line, whitespace)
-	pos += len(line) - prevLen
+	right := strings.TrimLeft(line, whitespace)
+	left := line[0 : len(line)-len(right)]
+	if left != "" {
+		l.lexemes <- lexeme{token.Whitespace, left}
+	}
+	line = right
+	pos += len(left)
 
 	if line == "" {
+		l.lexemes <- lexeme{token.Newline, line}
 		return lexStart
 	} else if line == "\\" {
-		l.lexemes <- lexeme{token.Escape, line}
+		l.lexemes <- lexeme{token.EscapedNewline, line}
 		return lexStart
 	}
 
 	switch r, width := utf8.DecodeRuneInString(line); r {
+	case '|':
+		l.lexemes <- lexeme{token.Pipe, string(r)}
+		return lexStart(l, line[width:], pos+width)
+	case '~':
+		// TODO: extract an (optional) username, e.g. "~sam"
+		l.lexemes <- lexeme{token.Tilde, string(r)}
+		return lexStart(l, line[width:], pos+width)
 	case '\'':
 		return lexSingleQuoted(l, line[width:], pos+width)
 	case '"':
 		return lexDoubleQuoted(l, line[width:], pos+width)
-	case '|':
-		l.lexemes <- lexeme{token.Pipe, string(r)}
-		return lexStart(l, line[width:], pos+width)
 	default:
 		return lexUnquoted(l, line, pos)
 	}
@@ -94,6 +102,7 @@ func quoted(l *lexer, line string, pos int, quote rune, next stateFn) stateFn {
 	pos += size
 	if r, _ := utf8.DecodeRuneInString(line); r != quote {
 		l.lexemes <- lexeme{token.SubString, text}
+		l.lexemes <- lexeme{token.Newline, line}
 		return next
 	}
 	l.lexemes <- lexeme{token.String, text}
@@ -106,6 +115,7 @@ func lexUnquoted(l *lexer, line string, pos int) stateFn {
 	pos += size
 	if line == "\\" {
 		l.lexemes <- lexeme{token.SubString, text}
+		l.lexemes <- lexeme{token.Newline, line}
 		return lexUnquoted
 	}
 	l.lexemes <- lexeme{token.String, text}

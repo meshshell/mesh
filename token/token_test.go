@@ -21,18 +21,23 @@ import (
 )
 
 func TestTokenString(t *testing.T) {
-	tests := []struct{
-		name string
-		tok Token
-		want string
-	}{
-		{"String", String, "String"},
-		{"Unknown", -1, "(unknown -1)"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, test.tok.String())
+	set := make(map[string]struct{})
+	for tok := Token(tokenBegin + 1); tok < tokenEnd; tok++ {
+		// Check that every valid token can be converted to a string.
+		// This catches cases where a new token const is added but the
+		// associated case statement in Token.String() is forgotten.
+		assert.NotPanics(t, func() {
+			str := tok.String()
+			assert.NotEmpty(t, str)
+			// Check that every token's string representation is
+			// unqiue. Hopefully this catches any copy/paste errors.
+			assert.NotContains(t, set, str)
+			set[str] = struct{}{}
 		})
 	}
+}
+
+func TestTokenStringPanicsIfInvalid(t *testing.T) {
+	var tok Token = -1
+	assert.Panics(t, func() { _ = tok.String() })
 }
