@@ -15,6 +15,8 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +84,33 @@ func TestVariableExpansion(t *testing.T) {
 			name:   "DollarWithoutIdentifier",
 			script: "echo x/$/y\n",
 			stdout: "x/$/y\n",
+		},
+	} {
+		t.Run(test.name, test.run)
+	}
+}
+
+func TestChdir(t *testing.T) {
+	dir1, err := ioutil.TempDir("", "mesh")
+	require.NoError(t, err)
+	defer os.Remove(dir1)
+	dir2, err := ioutil.TempDir("", "mesh")
+	require.NoError(t, err)
+	defer os.Remove(dir2)
+	for _, test := range []integrationTest{
+		{
+			name: "CDUpdatesPWDAndOLDPWD",
+			script: fmt.Sprintf(
+				"cd %s\ncd %s\necho $OLDPWD\necho $PWD\n",
+				dir1, dir2,
+			),
+			stdout: fmt.Sprintf("%s\n%s\n", dir1, dir2),
+		}, {
+			name: "ChangeToOldWorkingDirectory",
+			script: fmt.Sprintf(
+				"cd %s\ncd %s\ncd -\npwd\n", dir1, dir2,
+			),
+			stdout: dir1 + "\n",
 		},
 	} {
 		t.Run(test.name, test.run)

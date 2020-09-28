@@ -15,8 +15,8 @@
 package interpreter
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -52,13 +52,24 @@ func cd(b *builtin) error {
 		}
 	case 1:
 		target = b.args[0]
+		if target == "-" {
+			var ok bool
+			target, ok = os.LookupEnv("OLDPWD")
+			if !ok {
+				return fmt.Errorf("cd: OLDPWD not set")
+			}
+		}
 	default:
 		return errors.New("cd: too many arguments")
 	}
+	oldpwd, oldpwdErr := os.Getwd()
 	if err := os.Chdir(target); err != nil {
 		return fmt.Errorf("cd: %w", err)
 	}
-	return nil
+	if oldpwdErr == nil {
+		_ = os.Setenv("OLDPWD", oldpwd)
+	}
+	return os.Setenv("PWD", target)
 }
 
 type ExitStatus int
