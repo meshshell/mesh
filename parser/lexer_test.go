@@ -184,6 +184,66 @@ func TestLexerMultiLineStrings(t *testing.T) {
 	}
 }
 
+func TestLexerVariables(t *testing.T) {
+	for _, test := range []lexerTest{
+		{
+			"OneLetterIdentifier",
+			[]string{"cd $X"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.Dollar, "$"},
+				{token.Identifier, "X"},
+				{token.Newline, ""},
+			},
+		}, {
+			"StartOfWord",
+			[]string{"cd $HOME"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.Dollar, "$"},
+				{token.Identifier, "HOME"},
+				{token.Newline, ""},
+			},
+		}, {
+			"MiddleOfWord",
+			[]string{"cd /home/$USER/Desktop"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.String, "/home/"},
+				{token.Dollar, "$"},
+				{token.Identifier, "USER"},
+				{token.String, "/Desktop"},
+				{token.Newline, ""},
+			},
+		}, {
+			"EndOfWord",
+			[]string{"cd X$"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.String, "X"},
+				{token.Dollar, "$"},
+				{token.Newline, ""},
+			},
+		}, {
+			"BeforeString",
+			[]string{"cd $/X"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Whitespace, " "},
+				{token.Dollar, "$"},
+				{token.String, "/X"},
+				{token.Newline, ""},
+			},
+		},
+	} {
+		t.Run(test.name, test.run)
+	}
+}
+
 func TestLexerTildes(t *testing.T) {
 	for _, test := range []lexerTest{
 		{

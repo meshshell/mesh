@@ -37,6 +37,7 @@ type Expr interface {
 type ExprVisitor interface {
 	VisitString(s String) (string, error)
 	VisitTilde(t Tilde) (string, error)
+	VisitVar(v Var) (string, error)
 	VisitWord(w Word) (string, error)
 }
 
@@ -54,6 +55,14 @@ type Tilde struct {
 
 func (t Tilde) Visit(v ExprVisitor) (string, error) {
 	return v.VisitTilde(t)
+}
+
+type Var struct {
+	Identifier string
+}
+
+func (v Var) Visit(visit ExprVisitor) (string, error) {
+	return visit.VisitVar(v)
 }
 
 type Word struct {

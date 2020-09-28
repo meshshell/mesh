@@ -27,9 +27,11 @@ const (
 	EscapedNewline
 	Whitespace
 
+	Identifier
 	String
 	SubString
 
+	Dollar
 	Pipe
 	Tilde
 
@@ -44,10 +46,14 @@ func (t Token) String() string {
 		return "EscapedNewline"
 	case Whitespace:
 		return "Whitespace"
+	case Identifier:
+		return "Identifier"
 	case String:
 		return "String"
 	case SubString:
 		return "SubString"
+	case Dollar:
+		return "Dollar"
 	case Pipe:
 		return "Pipe"
 	case Tilde:

@@ -67,3 +67,23 @@ func TestTildeExpansion(t *testing.T) {
 		t.Run(test.name, test.run)
 	}
 }
+
+func TestVariableExpansion(t *testing.T) {
+	key := "meshshell_test_key"
+	require.NotContains(t, os.Environ(), "meshshell_test_key=test value")
+	require.NoError(t, os.Setenv(key, "test value"))
+	defer os.Unsetenv(key)
+	for _, test := range []integrationTest{
+		{
+			name:   "GetEnvVar",
+			script: "echo x/$meshshell_test_key/y\n",
+			stdout: "x/test value/y\n",
+		}, {
+			name:   "DollarWithoutIdentifier",
+			script: "echo x/$/y\n",
+			stdout: "x/$/y\n",
+		},
+	} {
+		t.Run(test.name, test.run)
+	}
+}

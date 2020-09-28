@@ -50,7 +50,7 @@ func (l *lexer) lex(line string) {
 const digits = "0123456789"
 const lowercase = "abcdefghijklmnopqrstuvwxyz"
 const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const special = "|"
+const special = "|$"
 const whitespace = " \t\n"
 const quotes = `'"`
 
@@ -72,6 +72,9 @@ func lexStart(l *lexer, line string, pos int) stateFn {
 	}
 
 	switch r, width := utf8.DecodeRuneInString(line); r {
+	case '$':
+		l.lexemes <- lexeme{token.Dollar, string(r)}
+		return lexIdentifier(l, line[width:], pos+width)
 	case '|':
 		l.lexemes <- lexeme{token.Pipe, string(r)}
 		return lexStart(l, line[width:], pos+width)
@@ -86,6 +89,24 @@ func lexStart(l *lexer, line string, pos int) stateFn {
 	default:
 		return lexUnquoted(l, line, pos)
 	}
+}
+
+func lexIdentifier(l *lexer, line string, pos int) stateFn {
+	r, size := utf8.DecodeRuneInString(line)
+	if !strings.ContainsRune(lowercase+uppercase+"_", r) {
+		return lexStart(l, line, pos)
+	}
+	index := strings.IndexFunc(line[size:], func(r rune) bool {
+		return !strings.ContainsRune(digits+lowercase+uppercase+"_", r)
+	})
+	if index == -1 {
+		// The identifier runs to the end of the line; let lexStart()
+		// emit the newline token and finish up.
+		l.lexemes <- lexeme{token.Identifier, line}
+		return lexStart(l, "", pos+len(line))
+	}
+	l.lexemes <- lexeme{token.Identifier, line[0 : size+index]}
+	return lexStart(l, line[size+index:], pos+size+index)
 }
 
 func lexSingleQuoted(l *lexer, line string, pos int) stateFn {

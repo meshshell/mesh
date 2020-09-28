@@ -65,6 +65,11 @@ func (i *Interpreter) VisitTilde(t ast.Tilde) (string, error) {
 	return home, err
 }
 
+func (i *Interpreter) VisitVar(v ast.Var) (string, error) {
+	// TODO: Implement an internal symbol table for shell variables.
+	return os.Getenv(v.Identifier), nil
+}
+
 func (i *Interpreter) VisitWord(w ast.Word) (string, error) {
 	var word strings.Builder
 	for _, subExpr := range w.SubExprs {

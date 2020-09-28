@@ -136,7 +136,7 @@ func (p *Parser) parseCmd() *ast.Cmd {
 		case token.Whitespace:
 			p.next()
 			continue
-		case token.String, token.SubString, token.Tilde:
+		case token.String, token.SubString, token.Dollar, token.Tilde:
 			argv = append(argv, p.parseWord())
 			continue
 		default:
@@ -156,19 +156,34 @@ func (p *Parser) parseWord() *ast.Word {
 				// We're inside a multi-line string, and expect
 				// more of the string on the next line.
 				p.done <- false
+				p.next()
 			} else {
 				return &ast.Word{SubExprs: exprs}
 			}
 		case token.EscapedNewline:
 			p.done <- false
+			p.next()
 		case token.String:
 			str.WriteString(l.text)
 			exprs = append(exprs, ast.String{Text: str.String()})
 			str.Reset()
+			p.next()
 		case token.SubString:
 			str.WriteString(l.text)
+			p.next()
+		case token.Dollar:
+			p.next()
+			v := p.parseVar()
+			if v == nil {
+				// The `$` was not followed by a valid
+				// identifier, so just treat it as literal text.
+				exprs = append(exprs, ast.String{Text: l.text})
+			} else {
+				exprs = append(exprs, v)
+			}
 		case token.Tilde:
 			exprs = append(exprs, ast.Tilde{Text: l.text})
+			p.next()
 		default:
 			if str.Len() > 0 {
 				panic(fmt.Sprintf(
@@ -177,6 +192,16 @@ func (p *Parser) parseWord() *ast.Word {
 				return &ast.Word{SubExprs: exprs}
 			}
 		}
+	}
+}
+
+func (p *Parser) parseVar() *ast.Var {
+	// TODO: Allow arrays to be indexed, and maps to be looked up.
+	switch l := p.peek(); l.tok {
+	case token.Identifier:
 		p.next()
+		return &ast.Var{Identifier: l.text}
+	default:
+		return nil
 	}
 }
