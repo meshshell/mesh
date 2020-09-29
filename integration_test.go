@@ -116,3 +116,41 @@ func TestChdir(t *testing.T) {
 		t.Run(test.name, test.run)
 	}
 }
+
+func TestWhitespace(t *testing.T) {
+	for _, test := range []integrationTest{
+		{
+			name: "EmptyString",
+			script: "\n",
+		}, {
+			name: "MultiLine",
+			script: "echo 'multiline\nstring'\n",
+			stdout: "multiline\nstring\n",
+		}, {
+			name: "JoinLines",
+			script: "echo \\\nfoo\n",
+			stdout: "foo\n",
+		}, {
+			name: "JoinWord",
+			script: "echo foo\\\nbar\n",
+			stdout: "foobar\n",
+		}, {
+			name: "SemicolonsAndWhitespace",
+			script: "; ;; \n",
+		},
+	} {
+		t.Run(test.name, test.run)
+	}
+}
+
+func TestStatements(t *testing.T) {
+	for _, test := range []integrationTest{
+		{
+			name: "CommandList",
+			script: "echo foo; echo bar\n",
+			stdout: "foo\nbar\n",
+		},
+	} {
+		t.Run(test.name, test.run)
+	}
+}

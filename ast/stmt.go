@@ -19,11 +19,25 @@ type Stmt interface {
 }
 
 type StmtVisitor interface {
+	VisitStmtList(s *StmtList) (int, error)
+	VisitPipeline(p *Pipeline) (int, error)
 	VisitCmd(c *Cmd) (int, error)
+}
+
+type StmtList struct {
+	Stmts []Stmt
+}
+
+func (s *StmtList) Visit(v StmtVisitor) (int, error) {
+	return v.VisitStmtList(s)
 }
 
 type Pipeline struct {
 	Stmts []Stmt
+}
+
+func (p *Pipeline) Visit(v StmtVisitor) (int, error) {
+	return v.VisitPipeline(p)
 }
 
 type Cmd struct {

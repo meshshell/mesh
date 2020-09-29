@@ -50,7 +50,7 @@ func (l *lexer) lex(line string) {
 const digits = "0123456789"
 const lowercase = "abcdefghijklmnopqrstuvwxyz"
 const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const special = "|$"
+const special = "$|;"
 const whitespace = " \t\n"
 const quotes = `'"`
 
@@ -77,6 +77,9 @@ func lexStart(l *lexer, line string, pos int) stateFn {
 		return lexIdentifier(l, line[width:], pos+width)
 	case '|':
 		l.lexemes <- lexeme{token.Pipe, string(r)}
+		return lexStart(l, line[width:], pos+width)
+	case ';':
+		l.lexemes <- lexeme{token.Semicolon, string(r)}
 		return lexStart(l, line[width:], pos+width)
 	case '~':
 		// TODO: extract an (optional) username, e.g. "~sam"

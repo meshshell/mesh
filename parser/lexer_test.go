@@ -286,3 +286,29 @@ func TestLexerTildes(t *testing.T) {
 		t.Run(test.name, test.run)
 	}
 }
+
+func TestLexerMultipleCommands(t *testing.T) {
+	for _, test := range []lexerTest{
+		{
+			"Semicolon",
+			[]string{"cd;ls"},
+			[]lexeme{
+				{token.String, "cd"},
+				{token.Semicolon, ";"},
+				{token.String, "ls"},
+				{token.Newline, ""},
+			},
+		}, {
+			"Pipeline",
+			[]string{"sort|uniq"},
+			[]lexeme{
+				{token.String, "sort"},
+				{token.Pipe, "|"},
+				{token.String, "uniq"},
+				{token.Newline, ""},
+			},
+		},
+	} {
+		t.Run(test.name, test.run)
+	}
+}

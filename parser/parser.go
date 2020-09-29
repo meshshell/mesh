@@ -27,6 +27,10 @@ type parserError struct {
 	msg string
 }
 
+func newParserError(format string, a ...interface{}) parserError {
+	return parserError{fmt.Sprintf(format, a...)}
+}
+
 func (pe parserError) Error() string {
 	return "parser: " + pe.msg
 }
@@ -50,7 +54,7 @@ func NewParser(filename string) *Parser {
 
 func (p *Parser) Parse(line string) bool {
 	if !p.locked {
-		go p.parseStmt()
+		go p.parseStmtList()
 	}
 	p.lex.lex(line)
 	return <-p.done
@@ -80,7 +84,7 @@ func (p *Parser) peek() *lexeme {
 	return p.lookahead
 }
 
-func (p *Parser) parseStmt() {
+func (p *Parser) parseStmtList() {
 	p.lock.Lock()
 	p.locked = true
 	p.stmt, p.err = nil, nil
@@ -104,24 +108,41 @@ func (p *Parser) parseStmt() {
 		p.done <- true
 		p.lock.Unlock()
 	}()
+	var stmts []ast.Stmt
+	for {
+		switch l := p.peek(); l.tok {
+		case token.Newline:
+			p.next()
+			p.stmt = &ast.StmtList{Stmts: stmts}
+			return
+		case token.Semicolon:
+			p.next()
+			continue
+		default:
+			stmts = append(stmts, p.parseStmt())
+		}
+	}
+}
 
-	var cmd *ast.Cmd = &ast.Cmd{}
-	for l := p.peek(); l.tok == token.Whitespace; l = p.next() {
+func (p *Parser) parseStmt() ast.Stmt {
+	for {
 		// Trim any leading whitespace.
+		switch l := p.peek(); l.tok {
+		case token.Whitespace, token.EscapedNewline:
+			p.next()
+			continue
+		}
+		break
 	}
 	switch l := p.peek(); l.tok {
-	case token.Newline:
-		break
-	case token.Pipe:
-		panic(parserError{"pipe operator not yet implemented"})
+	case token.Dollar:
+		panic(newParserError("assignment stmt not yet implemented"))
+	case token.String, token.SubString, token.Tilde:
+		return p.parseCmd()
+	case token.Semicolon, token.Newline:
+		return &ast.Cmd{Argv: []ast.Expr{}}
 	default:
-		cmd = p.parseCmd()
-	}
-	switch l := p.next(); l.tok {
-	case token.Newline:
-		p.stmt = cmd
-	default:
-		p.err = fmt.Errorf("parser: unexpected token: %v", l)
+		panic(newParserError("unexpected token: %v", l))
 	}
 }
 
@@ -160,9 +181,6 @@ func (p *Parser) parseWord() *ast.Word {
 			} else {
 				return &ast.Word{SubExprs: exprs}
 			}
-		case token.EscapedNewline:
-			p.done <- false
-			p.next()
 		case token.String:
 			str.WriteString(l.text)
 			exprs = append(exprs, ast.String{Text: str.String()})
@@ -186,7 +204,7 @@ func (p *Parser) parseWord() *ast.Word {
 			p.next()
 		default:
 			if str.Len() > 0 {
-				panic(fmt.Sprintf(
+				panic(newParserError(
 					"parser: unexpected token %v", l))
 			} else {
 				return &ast.Word{SubExprs: exprs}

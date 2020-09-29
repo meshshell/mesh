@@ -15,6 +15,7 @@
 package interpreter
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -27,6 +28,21 @@ type Interpreter struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+}
+
+func (i *Interpreter) VisitStmtList(s *ast.StmtList) (int, error) {
+	var status int
+	var err error
+	for _, stmt := range s.Stmts {
+		if status, err = stmt.Visit(i); err != nil {
+			return status, err
+		}
+	}
+	return status, err
+}
+
+func (i *Interpreter) VisitPipeline(p *ast.Pipeline) (int, error) {
+	return 0, errors.New("not yet implemented")
 }
 
 func (i *Interpreter) VisitCmd(c *ast.Cmd) (int, error) {

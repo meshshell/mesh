@@ -19,44 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/meshshell/mesh/ast"
 )
-
-func TestParse(t *testing.T) {
-	tests := []struct {
-		name   string
-		inputs []string
-		argv   []string
-	}{
-		{"EmptyString", []string{""}, []string{}},
-		{"OneWord", []string{"ls"}, []string{"ls"}},
-		{"TwoWords", []string{"ls -l"}, []string{"ls", "-l"}},
-		{"MultiLine", []string{"a 'b", "c'"}, []string{"a", "b\nc"}},
-		{"JoinLines", []string{"a \\", "b"}, []string{"a", "b"}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			p := NewParser(t.Name())
-			for i, line := range test.inputs {
-				isLastLine := i == len(test.inputs)-1
-				assert.Equal(t, isLastLine, p.Parse(line))
-			}
-			stmt, err := p.Result()
-			require.NoError(t, err)
-			cmd, ok := stmt.(*ast.Cmd)
-			require.True(t, ok)
-			assert.Equal(t, len(test.argv), len(cmd.Argv))
-			for i, want := range test.argv {
-				word := cmd.Argv[i].(*ast.Word)
-				str := word.SubExprs[0].(ast.String)
-				got := str.Text
-				assert.Equal(t, want, got)
-			}
-		})
-	}
-}
 
 func TestParserResultWhileLocked(t *testing.T) {
 	p := NewParser(t.Name())

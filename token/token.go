@@ -33,6 +33,7 @@ const (
 
 	Dollar
 	Pipe
+	Semicolon
 	Tilde
 
 	tokenEnd
@@ -56,6 +57,8 @@ func (t Token) String() string {
 		return "Dollar"
 	case Pipe:
 		return "Pipe"
+	case Semicolon:
+		return "Semicolon"
 	case Tilde:
 		return "Tilde"
 	default:
