@@ -138,11 +138,25 @@ func (p *Parser) parseStmt() ast.Stmt {
 	case token.Dollar:
 		panic(newParserError("assignment stmt not yet implemented"))
 	case token.String, token.SubString, token.Tilde:
-		return p.parseCmd()
+		return p.parsePipeline()
 	case token.Semicolon, token.Newline:
 		return &ast.Cmd{Argv: []ast.Expr{}}
 	default:
 		panic(newParserError("unexpected token: %v", l))
+	}
+}
+
+func (p *Parser) parsePipeline() *ast.Pipeline {
+	stmts := []ast.Stmt{p.parseCmd()}
+	for {
+		switch l := p.peek(); l.tok {
+		case token.Pipe:
+			p.next()
+		case token.Semicolon, token.Newline:
+			return &ast.Pipeline{Stmts: stmts}
+		default:
+			stmts = append(stmts, p.parseCmd())
+		}
 	}
 }
 

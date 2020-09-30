@@ -15,11 +15,11 @@
 package interpreter
 
 import (
-	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/meshshell/mesh/ast"
 )
@@ -41,8 +41,53 @@ func (i *Interpreter) VisitStmtList(s *ast.StmtList) (int, error) {
 	return status, err
 }
 
-func (i *Interpreter) VisitPipeline(p *ast.Pipeline) (int, error) {
-	return 0, errors.New("not yet implemented")
+func (shell *Interpreter) VisitPipeline(p *ast.Pipeline) (int, error) {
+	var fromPipe io.ReadCloser
+	statuses := make([]int, len(p.Stmts))
+	errs := make([]error, len(p.Stmts))
+	var wg sync.WaitGroup
+	wg.Add(len(p.Stmts))
+	for index, stmt := range p.Stmts {
+		subshell := &Interpreter{Stderr: shell.Stderr}
+		if index == 0 {
+			// First command in the pipeline, so read from stdin.
+			subshell.Stdin = shell.Stdin
+		} else {
+			// Otherwise read from a pipe. The output side of the
+			// pipe will have been created in the previous iteration
+			// of this loop.
+			subshell.Stdin = fromPipe
+		}
+		var toPipe io.WriteCloser
+		if index == len(p.Stmts)-1 {
+			// Last command in the pipeline, so write to stdout.
+			subshell.Stdout = shell.Stdout
+		} else {
+			// Otherwise create a pipe and write to it.
+			var pipeErr error
+			fromPipe, toPipe, pipeErr = os.Pipe()
+			if pipeErr != nil {
+				return -1, pipeErr
+			}
+			defer fromPipe.Close()
+			subshell.Stdout = toPipe
+		}
+		go func(index int, stmt ast.Stmt) {
+			// VisitCmd runs synchronously, so run it in a goroutine
+			// to ensure that the pipeline runs concurrently.
+			statuses[index], errs[index] = stmt.Visit(subshell)
+			if toPipe != nil {
+				// Close the write-side of the pipe, so that the
+				// next command in the pipeline doesn't block
+				// trying to read from the pipe.
+				toPipe.Close()
+			}
+			wg.Done()
+		}(index, stmt)
+	}
+	wg.Wait()
+	// TODO: implement `pipefail` behaviour?
+	return statuses[len(p.Stmts)-1], errs[len(p.Stmts)-1]
 }
 
 func (i *Interpreter) VisitCmd(c *ast.Cmd) (int, error) {

@@ -149,6 +149,10 @@ func TestStatements(t *testing.T) {
 			name: "CommandList",
 			script: "echo foo; echo bar\n",
 			stdout: "foo\nbar\n",
+		}, {
+			name: "Pipeline",
+			script: "seq 3 -1 1 | sort\n",
+			stdout: "1\n2\n3\n",
 		},
 	} {
 		t.Run(test.name, test.run)
