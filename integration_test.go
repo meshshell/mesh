@@ -111,6 +111,14 @@ func TestChdir(t *testing.T) {
 				"cd %s\ncd %s\ncd -\npwd\n", dir1, dir2,
 			),
 			stdout: dir1 + "\n",
+		}, {
+			name: "PWDIsAbsolute",
+			script: fmt.Sprintf(
+				"cd %s\ncd ..\ncd %s\necho $PWD\n",
+				dir1,
+				filepath.Base(dir1),
+			),
+			stdout: dir1 + "\n",
 		},
 	} {
 		t.Run(test.name, test.run)

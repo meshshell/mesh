@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -62,14 +63,13 @@ func cd(b *builtin) error {
 	default:
 		return errors.New("cd: too many arguments")
 	}
-	oldpwd, oldpwdErr := os.Getwd()
+	oldpwd := os.Getenv("PWD")
+	newpwd, _ := filepath.Abs(target)
 	if err := os.Chdir(target); err != nil {
 		return fmt.Errorf("cd: %w", err)
 	}
-	if oldpwdErr == nil {
-		_ = os.Setenv("OLDPWD", oldpwd)
-	}
-	return os.Setenv("PWD", target)
+	os.Setenv("OLDPWD", oldpwd)
+	return os.Setenv("PWD", newpwd)
 }
 
 type ExitStatus int
