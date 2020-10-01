@@ -36,13 +36,13 @@ func (pe parserError) Error() string {
 }
 
 type Parser struct {
-	lex       *lexer
-	done      chan bool
-	lock      sync.Mutex
-	locked    bool
-	stmt      ast.Stmt
-	err       error
-	lookahead *lexeme
+	lex    *lexer
+	done   chan bool
+	lock   sync.Mutex
+	locked bool
+	stmt   ast.Stmt
+	err    error
+	curr   *lexeme
 }
 
 func NewParser(filename string) *Parser {
@@ -67,42 +67,65 @@ func (p *Parser) Result() (ast.Stmt, error) {
 	return p.stmt, p.err
 }
 
-func (p *Parser) next() *lexeme {
-	if p.lookahead != nil {
-		defer func() { p.lookahead = nil }()
-		return p.lookahead
+// accept consumes the current token, so that the accept call to peek() or
+// trim() will return a new token
+func (p *Parser) accept() {
+	if p.curr == nil {
+		// TODO: If this panic happens, it's a bug, and we should prompt
+		// the user to report it (and probably provide more info about
+		// what went wrong, such as the next token). This function must
+		// only ever be called after a call to peek() or trim().
+		panic("parser: tried to skip over unseen token")
 	}
-	l := <-p.lex.lexemes
-	return &l
+	p.curr = nil
 }
 
+// peek returns the current token, retrieving it from the lexer if necessary
 func (p *Parser) peek() *lexeme {
-	if p.lookahead == nil {
+	if p.curr == nil {
 		l := <-p.lex.lexemes
-		p.lookahead = &l
+		p.curr = &l
 	}
-	return p.lookahead
+	return p.curr
+}
+
+// trim is like peek(), except that it consumes any whitespace before returning
+// the current token
+func (p *Parser) trim() *lexeme {
+	for {
+		switch p.peek().tok {
+		case token.EscapedNewline:
+			p.done <- false
+			fallthrough
+		case token.Whitespace:
+			p.accept()
+			continue
+		default:
+			return p.curr
+		}
+	}
 }
 
 func (p *Parser) parseStmtList() {
 	p.lock.Lock()
 	p.locked = true
-	p.stmt, p.err = nil, nil
+	p.stmt, p.err, p.curr = nil, nil, nil
 	defer func() {
 		if r := recover(); r != nil {
-			if err, ok := r.(parserError); ok {
-				p.err = err
-				for p.next().tok != token.Newline {
-					// If the parser panics before parsing
-					// the current line, the lexer will
-					// still continue to run. So we need to
-					// drain the p.lexemes channel of all
-					// tokens until the next Newline, so
-					// that the lexer doesn't block.
-				}
-			} else {
+			err, ok := r.(parserError)
+			if !ok {
 				panic(r)
 			}
+			p.err = err
+			// If the parser panics before parsing the current line,
+			// the lexer will still continue to run. So we need to
+			// drain the p.lexemes channel of all tokens until the
+			// end of the line, so that the lexer doesn't block.
+			for p.peek().tok != token.Newline &&
+				p.peek().tok != token.EscapedNewline {
+				p.accept()
+			}
+			p.accept()
 		}
 		p.locked = false
 		p.done <- true
@@ -110,13 +133,13 @@ func (p *Parser) parseStmtList() {
 	}()
 	var stmts []ast.Stmt
 	for {
-		switch l := p.peek(); l.tok {
+		switch l := p.trim(); l.tok {
 		case token.Newline:
-			p.next()
+			p.accept()
 			p.stmt = &ast.StmtList{Stmts: stmts}
 			return
 		case token.Semicolon:
-			p.next()
+			p.accept()
 			continue
 		default:
 			stmts = append(stmts, p.parseStmt())
@@ -125,16 +148,7 @@ func (p *Parser) parseStmtList() {
 }
 
 func (p *Parser) parseStmt() ast.Stmt {
-	for {
-		// Trim any leading whitespace.
-		switch l := p.peek(); l.tok {
-		case token.Whitespace, token.EscapedNewline:
-			p.next()
-			continue
-		}
-		break
-	}
-	switch l := p.peek(); l.tok {
+	switch l := p.trim(); l.tok {
 	case token.Dollar:
 		panic(newParserError("assignment stmt not yet implemented"))
 	case token.String, token.SubString, token.Tilde:
@@ -149,9 +163,9 @@ func (p *Parser) parseStmt() ast.Stmt {
 func (p *Parser) parsePipeline() *ast.Pipeline {
 	stmts := []ast.Stmt{p.parseCmd()}
 	for {
-		switch l := p.peek(); l.tok {
+		switch l := p.trim(); l.tok {
 		case token.Pipe:
-			p.next()
+			p.accept()
 		case token.Semicolon, token.Newline:
 			return &ast.Pipeline{Stmts: stmts}
 		default:
@@ -163,14 +177,7 @@ func (p *Parser) parsePipeline() *ast.Pipeline {
 func (p *Parser) parseCmd() *ast.Cmd {
 	var argv []ast.Expr
 	for {
-		switch l := p.peek(); l.tok {
-		case token.EscapedNewline:
-			p.done <- false
-			p.next()
-			continue
-		case token.Whitespace:
-			p.next()
-			continue
+		switch l := p.trim(); l.tok {
 		case token.String, token.SubString, token.Dollar, token.Tilde:
 			argv = append(argv, p.parseWord())
 			continue
@@ -191,7 +198,7 @@ func (p *Parser) parseWord() *ast.Word {
 				// We're inside a multi-line string, and expect
 				// more of the string on the next line.
 				p.done <- false
-				p.next()
+				p.accept()
 			} else {
 				return &ast.Word{SubExprs: exprs}
 			}
@@ -199,12 +206,12 @@ func (p *Parser) parseWord() *ast.Word {
 			str.WriteString(l.text)
 			exprs = append(exprs, ast.String{Text: str.String()})
 			str.Reset()
-			p.next()
+			p.accept()
 		case token.SubString:
 			str.WriteString(l.text)
-			p.next()
+			p.accept()
 		case token.Dollar:
-			p.next()
+			p.accept()
 			v := p.parseVar()
 			if v == nil {
 				// The `$` was not followed by a valid
@@ -215,7 +222,7 @@ func (p *Parser) parseWord() *ast.Word {
 			}
 		case token.Tilde:
 			exprs = append(exprs, ast.Tilde{Text: l.text})
-			p.next()
+			p.accept()
 		default:
 			if str.Len() > 0 {
 				panic(newParserError(
@@ -231,7 +238,7 @@ func (p *Parser) parseVar() *ast.Var {
 	// TODO: Allow arrays to be indexed, and maps to be looked up.
 	switch l := p.peek(); l.tok {
 	case token.Identifier:
-		p.next()
+		p.accept()
 		return &ast.Var{Identifier: l.text}
 	default:
 		return nil
