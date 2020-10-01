@@ -72,7 +72,8 @@ func TestTildeExpansion(t *testing.T) {
 
 func TestVariableExpansion(t *testing.T) {
 	key := "meshshell_test_key"
-	require.NotContains(t, os.Environ(), "meshshell_test_key=test value")
+	_, ok := os.LookupEnv(key)
+	require.False(t, ok)
 	require.NoError(t, os.Setenv(key, "test value"))
 	defer os.Unsetenv(key)
 	for _, test := range []integrationTest{
