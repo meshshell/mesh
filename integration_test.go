@@ -129,22 +129,22 @@ func TestChdir(t *testing.T) {
 func TestWhitespace(t *testing.T) {
 	for _, test := range []integrationTest{
 		{
-			name: "EmptyString",
+			name:   "EmptyString",
 			script: "\n",
 		}, {
-			name: "MultiLine",
+			name:   "MultiLine",
 			script: "echo 'multiline\nstring'\n",
 			stdout: "multiline\nstring\n",
 		}, {
-			name: "JoinLines",
+			name:   "JoinLines",
 			script: "echo \\\nfoo\n",
 			stdout: "foo\n",
 		}, {
-			name: "JoinWord",
+			name:   "JoinWord",
 			script: "echo foo\\\nbar\n",
 			stdout: "foobar\n",
 		}, {
-			name: "SemicolonsAndWhitespace",
+			name:   "SemicolonsAndWhitespace",
 			script: "; ;; \n",
 		},
 	} {
@@ -155,11 +155,11 @@ func TestWhitespace(t *testing.T) {
 func TestStatements(t *testing.T) {
 	for _, test := range []integrationTest{
 		{
-			name: "CommandList",
+			name:   "CommandList",
 			script: "echo foo; echo bar\n",
 			stdout: "foo\nbar\n",
 		}, {
-			name: "Pipeline",
+			name:   "Pipeline",
 			script: "seq 3 -1 1 | sort\n",
 			stdout: "1\n2\n3\n",
 		},

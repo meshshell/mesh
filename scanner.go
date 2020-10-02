@@ -32,7 +32,7 @@ type scanner interface {
 }
 
 type interactive struct {
-	r   *readline.Instance
+	r         *readline.Instance
 	ignoreEOF bool
 }
 

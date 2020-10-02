@@ -56,4 +56,3 @@ type Word struct {
 func (w Word) Visit(v ExprVisitor) (string, error) {
 	return v.VisitWord(w)
 }
-
